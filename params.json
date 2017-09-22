@@ -1,0 +1,7 @@
+
+{
+  "preprocess":{
+    "train":0.7,
+    "test":0.2
+  }
+}
