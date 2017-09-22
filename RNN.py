@@ -6,4 +6,5 @@ from preprocessor import preprocess
 
 class RNNModel():
     def __init__(self):
+        
         pass
