@@ -5,6 +5,7 @@ import pickle
 import re
 import nltk
 import itertools
+import time
 
 
 params = json.loads(open("params.json").read())
@@ -14,39 +15,46 @@ VOCAB_SIZE = params['preprocess']['vocab_size']
 SENTENCE_START = 'SENTENCE_START'
 SENTENCE_END = 'SENTENCE_END'
 UNKNOWN_TOKEN = 'UNKNOWN_TOKEN'
+FILE_NAME = 'dataVectorized'
 
 class preprocess():
 
     def __init__(self):
+        # this will contain the raw senteneces
         self.train_sentences = []
         self.test_sentences = []
         self.validate_sentences = []
+
+        # this will contained the cleaned sentences
+
         self.train = []
-        self.test = []
+        self.test =[]
         self.validate = []
-        self.index_to_word = []
-        self.word_to_index = {}
+
+        # this contains the actual data in numerical
         self.X_train = []
         self.y_train = []
         self.X_test = []
         self.y_test = []
         self.X_validate = []
         self.y_validate = []
+
+        # meta data about the vocab
+        self.index_to_word = []
+        self.word_to_index = {}
         self.unknown = []
         self.vocab = []
 
 
-    def callMeFirst(self,loaded_obj):
-       self.train_sentences = loaded_obj.train_sentences
-       self.test_sentences = loaded_obj.test_sentences
-       self.validate_sentences = loaded_obj.validate_sentences
-       self.train = loaded_obj.train
-       self.test = loaded_obj.test
-       self.validate = loaded_obj.validate
+    def makeData(self):
+        self.clean()
+        self.replaceAllLinks()
+        self.replaceTwitterLinks()
+        self.makeXy()
 
 
     def load(self):
-        picklefile = open('pickledfiles/sentences2','r')
+        picklefile = open('pickledfiles/'+FILE_NAME,'r')
         obj = pickle.loads(picklefile.read())
         return obj
 
@@ -108,13 +116,13 @@ class preprocess():
 
         #add start token and end token
         for sent in self.train:
-            train.append(SENTENCE_START+sent+SENTENCE_END)
+            train.append(SENTENCE_START+" "+sent+" "+SENTENCE_END)
 
         for sent in self.test:
-            test.append(SENTENCE_START+sent+SENTENCE_END)
+            test.append(SENTENCE_START+" "+sent+" "+SENTENCE_END)
 
         for sent in self.validate:
-            validate.append(SENTENCE_START+sent+SENTENCE_END)
+            validate.append(SENTENCE_START+" "+sent+" "+SENTENCE_END)
 
         self.train = train
         self.test = test
@@ -196,13 +204,48 @@ class preprocess():
 
 
 
+def pickleJsonEqual():
+    obj = preprocess().load()
+    #
+    max_l = 0
+    for x in obj.X_train:
+        max_l = max(len(x),max_l)
+    end = obj.word_to_index["SENTENCE_END"]
+    for i in range(len(obj.X_train)):
+        l = max_l - len(obj.X_train[i])
+        to_append = [end]*l
+        obj.X_train[i] = np.concatenate((obj.X_train[i],to_append))
+        obj.y_train[i] = np.concatenate((obj.y_train[i],to_append))
+
+    max_l = 0
+    for x in obj.X_test:
+        max_l = max(len(x),max_l)
+
+    for i in range(len(obj.X_test)):
+        l = max_l - len(obj.X_test[i])
+        to_append = [end]*l
+        obj.X_test[i] = np.concatenate((obj.X_test[i],to_append))
+        obj.y_test[i] = np.concatenate((obj.y_test[i],to_append))
+
+    max_l = 0
+    for x in obj.X_validate:
+        max_l = max(len(x),max_l)
+
+    for i in range(len(obj.X_validate)):
+        l = max_l - len(obj.X_validate[i])
+        to_append = [end]*l
+        obj.X_validate[i] = np.concatenate((obj.X_validate[i],to_append))
+        obj.y_validate[i] = np.concatenate((obj.y_validate[i],to_append))
+
+
+    pickle_file_sampled_data = open('pickledfiles/dataVectorized','w')
+    pickle.dump(obj,pickle_file_sampled_data)
+
+
 if __name__ == '__main__':
+    start = time.time()
     obj = preprocess()
-    o = obj.load()
-    newobj = preprocess()
-    newobj.callMeFirst(o)
-    newobj.makeXy()
-    # # obj.clean()
-    # # obj.replaceAllLinks()
-    pickle_file_sampled_data = open('pickledfiles/dataRefined','w')
-    pickle.dump(newobj,pickle_file_sampled_data)
+    obj.makeData()
+    pickle_file_sampled_data = open('pickledfiles/'+FILE_NAME,'w')
+    pickle.dump(obj,pickle_file_sampled_data)
+    print "seconds ---------- "+str(time.time()-start)
