@@ -5,7 +5,7 @@ import json
 from joblib import Parallel, delayed
 import time
 import multiprocessing
-
+import sys
 
 p_file = open('params.json','r')
 params = json.loads(p_file.read())
@@ -13,11 +13,17 @@ np.random.seed(10)
 start = time.time()
 
 
+
 MODEL_FILE = 'modelv1'
 train_size = params['training_size']
 
-def execPlaceHolder(self,X,y):
-    self.tbpttTrain(X,y)
+def execParallel(self,X,y,t,prev_hidden,im):
+    y_predicted,hidden_state_info_activated = self.forwardProp(X[:,t:t+self.truncate],prev_hidden)
+    tmp = hidden_state_info_activated[:,-2]
+    J = self.softmaxLoss(y_predicted, y[:,t:t+self.truncate])
+    #now backpropogate
+    dJdV, dJdW, dJdU, dJdbh, dJdbi  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
+    return im,tmp, J, dJdV, dJdW, dJdU, dJdbh, dJdbi
 
 class RNNModel():
     def __init__(self):
@@ -67,6 +73,7 @@ class RNNModel():
         y = np.array(list(data.y_train[:train_size]))
         self.randomizeParams()
         print "Everything loaded starting training"
+        sys.stdout.flush()
         self.miniBatchGd(X,y)
 
     #takes a The whole dataset as the input and forward propogates for that
@@ -75,9 +82,11 @@ class RNNModel():
         # this function receives a sentence (in terms of index 2d array)
         T = X.shape[-1]
         dp = X.shape[0]
+
         hidden_state_info_activated = np.zeros((dp,T+1,self.hidden_nodes)) #for every training example i have a hidden state info
         hidden_state_info = np.zeros((dp,T+1,self.hidden_nodes))
-        hidden_state_info[:][-1] = prev_hidden
+        hidden_state_info[:,-1] = prev_hidden
+
         output = np.zeros((dp,T,self.word_dim)) #fist one should not be considered, therefore indexing is from 1 to T
         for t in np.arange(0,T):
             curr_hidden_state_info = hidden_state_info[:,t-1,:].reshape(dp,1,self.hidden_nodes)
@@ -93,7 +102,7 @@ class RNNModel():
 
         #returns the information for the whole dataset
 
-        return output, hidden_state_info, hidden_state_info_activated
+        return output, hidden_state_info_activated
 
 
     # the predict function returns the calculated output by just calculating the max probability, x is the single sentence
@@ -133,22 +142,61 @@ class RNNModel():
         #X here will be a mini batch this can be parallelized in the main function
         prev_hidden = np.zeros(self.hidden_nodes)
         for t in range(0,X.shape[-1],self.truncate):
-            y_predicted, hidden_state_info,hidden_state_info_activated = self.forwardProp(X[:,t:t+self.truncate],prev_hidden)
-            prev_hidden = hidden_state_info[:][-2]
+            y_predicted,hidden_state_info_activated = self.forwardProp(X[:,t:t+self.truncate],prev_hidden)
+            prev_hidden = hidden_state_info_activated[:][-2]
             J = self.softmaxLoss(y_predicted, y[:,t:t+self.truncate])
             self.losses.append(J)
-            if self.update_count % 30 == 0:
-                print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)
+
+
             #now backpropogate
-            dJdV, dJdW, dJdU, dJdbh, dJdbi  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
+            dJdV, dJdW, dJdU, dJdbh, dJdbi  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
             self.update_count += 1
             self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbh, dJdbi,self.update_count)
+            if self.update_count % 30 == 0:
+                print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)
+                sys.stdout.flush()
+        print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)
+        sys.stdout.flush()
+
+
+    def tbpttTrainParallel(self,X,y,flag, num_cores, pool_size):
+        #X here will be a mini batch this can be parallelized in the main function
+        prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
+
+        for t in range(0,X.shape[-1],self.truncate):
+            J = 0
+            ite = [delayed(execParallel)(self,X[im:im+pool_size],y[im:im+pool_size],t,prev_hidden[im:im+pool_size],im) for im in range(0,len(X),pool_size)]
+            all_return_values = Parallel(n_jobs=num_cores)(ite)
+            all_return_values.sort(key=lambda j: j[0])
+            dJdW = np.zeros(self.w_shape)
+            dJdU = np.zeros(self.u_shape)
+            dJdV = np.zeros(self.v_shape)
+            dJdbh = 0
+            dJdbi = 0
+            for return_vals in all_return_values:
+                im = return_vals[0]
+                prev_hidden[im:im+pool_size] = return_vals[1]
+                J += return_vals[2]
+                dJdV += return_vals[3]
+                dJdW += return_vals[4]
+                dJdU += return_vals[5]
+                dJdbh += return_vals[6]
+                dJdbi += return_vals[7]
+
+
+            self.update_count += 1
+            self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbh, dJdbi,self.update_count)
+            #calculate total loss here
+            self.losses.append(J)
+            if self.update_count % 30 == 0:
+                print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)+" time: "+str(time.time()-start)
+                sys.stdout.flush()
+        print "After Updates For this batch: "+str(self.update_count)+" Loss: " +str(J)
+        sys.stdout.flush()
 
 
 
-
-
-    def tbptt(self, X, y, y_predicted, hidden_state_info, hidden_state_info_activated,T):
+    def tbptt(self, X, y, y_predicted, hidden_state_info_activated,T):
 
         #error in the ouput
         m = y.shape[0]
@@ -266,7 +314,9 @@ class RNNModel():
             pool_size = self.batch_size/num_cores
         for epochs in xrange(n_epochs):
             if(epochs%5==0):
-                print "Epoch: "+str(epochs)+" Loss: "+str(self.losses[-1])
+                print "Epoch: "+str(epochs)+" Loss: "+str(self.losses[-1])+" time: "+str(time.time()-start)
+                sys.stdout.flush()
+
 
             np.random.shuffle(zipped)
             X,y = zip(*zipped)
@@ -276,10 +326,14 @@ class RNNModel():
                 #get the current mini batch
                 X_mini = X[i:i+self.batch_size]
                 y_mini = y[i:i+self.batch_size]
-                self.tbpttTrain(X_mini,y_mini,parallel_flag,num_cores,pool_size)
-
+                if parallel_flag:
+                    self.tbpttTrainParallel(X_mini,y_mini,parallel_flag,num_cores,pool_size)
+                else:
+                    self.tbpttTrain(X_mini,y_mini,parallel_flag,num_cores,pool_size)
 
         print "Loss After Training "+str(self.losses[-1])
+        sys.stdout.flush()
+
 
 
 
