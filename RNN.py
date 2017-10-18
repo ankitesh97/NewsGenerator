@@ -22,8 +22,8 @@ def execParallel(self,X,y,t,prev_hidden,im):
     tmp = hidden_state_info_activated[:,-2]
     J = self.softmaxLoss(y_predicted, y[:,t:t+self.truncate])
     #now backpropogate
-    dJdV, dJdW, dJdU, dJdbh, dJdbi  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
-    return im,tmp, J, dJdV, dJdW, dJdU, dJdbh, dJdbi
+    dJdV, dJdW, dJdU, dJdbho , dJdbhh, dJdbih  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
+    return im,tmp, J, dJdV, dJdW, dJdU, dJdbho , dJdbhh, dJdbih
 
 class RNNModel():
     def __init__(self):
@@ -46,15 +46,16 @@ class RNNModel():
         self.momentum1_w = np.zeros(self.w_shape)
         self.momentum1_u = np.zeros(self.u_shape)
         self.momentum1_v = np.zeros(self.v_shape)
-        self.momentum1_bh = 0.0
-        self.momentum1_bi = 0.0
+        self.momentum1_bhh = np.zeros(self.hidden_size)
+        self.momentum1_bho = np.zeros(self.word_dim)
+        self.momentum1_bih = np.zeros(self.hidden_size)
 
         self.momentum2_w = np.zeros(self.w_shape)
         self.momentum2_u = np.zeros(self.u_shape)
         self.momentum2_v = np.zeros(self.v_shape)
-        self.momentum2_bh = 0.0
-        self.momentum2_bi = 0.0
-
+        self.momentum1_bhh = np.zeros(self.hidden_size)
+        self.momentum1_bho = np.zeros(self.word_dim)
+        self.momentum1_bih = np.zeros(self.hidden_size)
         #hyperparamters
         self.alpha = params['alpha']
         self.beta1 = params['beta1']
@@ -90,13 +91,13 @@ class RNNModel():
         output = np.zeros((dp,T,self.word_dim)) #fist one should not be considered, therefore indexing is from 1 to T
         for t in np.arange(0,T):
             curr_hidden_state_info = hidden_state_info[:,t-1,:].reshape(dp,1,self.hidden_nodes)
-            hidden_to_hidden = self.bh + np.dot(curr_hidden_state_info,self.W.T).squeeze()
-            input_to_hidden = self.bi + (self.U[:,X[:,t]]).T
+            hidden_to_hidden = self.bhh + np.dot(curr_hidden_state_info,self.W.T).squeeze()
+            input_to_hidden = self.bih + (self.U[:,X[:,t]]).T
             non_activated = hidden_to_hidden+input_to_hidden
             activated = self.tanh(non_activated)
             hidden_state_info[:,t] = non_activated
             hidden_state_info_activated[:,t] = activated
-            curr_output = self.bh + np.dot(hidden_state_info_activated[:,t].reshape(dp,1,self.hidden_nodes),self.V.T).squeeze()
+            curr_output = self.bh0 + np.dot(hidden_state_info_activated[:,t].reshape(dp,1,self.hidden_nodes),self.V.T).squeeze()
             probab = self.softmax(curr_output)
             output[:,t] = probab
 
@@ -124,13 +125,12 @@ class RNNModel():
 
     def randomizeParams(self):
         # xavier initialization
-        tmp = np.random.randn(np.product(self.w_shape)+1) * np.sqrt(1.0/self.hidden_nodes)
-        self.bh = tmp[0] #hidden layer bias
-        self.W = tmp[1:].reshape(self.w_shape)
-        tmp = np.random.randn(np.product(self.u_shape)+1) * np.sqrt(1.0/self.word_dim)
-        self.bi = tmp[0] #input layer bias
-        self.U = tmp[1:].reshape(self.u_shape)
-        self.V = np.random.randn(self.v_shape[0],self.v_shape[1]) * np.sqrt(1.0/self.hidden_nodes)
+        self.W = np.random.randn(self.w_shape[0],self.w_shape[1]) * np.sqrt(1.0/(1+self.hidden_nodes))
+        self.bhh = np.random.randn(self.hidden_nodes) * np.sqrt(1.0/(1+self.hidden_nodes)) #hidden to hidden layer bias
+        self.U = np.random.randn(self.u_shape[0],self.u_shape[1]) * np.sqrt(1.0/(1+*self.word_dim))
+        self.bih = np.random.randn(self.hidden_nodes) * np.sqrt(1.0/(1+self.word_dim)) #input to hidden bias
+        self.V = np.random.randn(self.v_shape[0],self.v_shape[1]) * np.sqrt(1.0/self.hidden_nodes+1)
+        self.bho = np.random.randn(self.vocab_size) * np.sqrt(1.0/(1+*self.word_dim)) #hidden to output bias
 
 
 
@@ -149,9 +149,9 @@ class RNNModel():
 
 
             #now backpropogate
-            dJdV, dJdW, dJdU, dJdbh, dJdbi  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
+            dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
             self.update_count += 1
-            self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbh, dJdbi,self.update_count)
+            self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih, self.update_count)
             if self.update_count % 30 == 0:
                 print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)
                 sys.stdout.flush()
@@ -171,8 +171,9 @@ class RNNModel():
             dJdW = np.zeros(self.w_shape)
             dJdU = np.zeros(self.u_shape)
             dJdV = np.zeros(self.v_shape)
-            dJdbh = 0
-            dJdbi = 0
+            dJdbhh = np.zeros(self.hidden_size)
+            dJdbih = np.zeros(self.hidden_size)
+            dJdbho = np.zeros(self.word_dim)
             for return_vals in all_return_values:
                 im = return_vals[0]
                 prev_hidden[im:im+pool_size] = return_vals[1]
@@ -180,12 +181,13 @@ class RNNModel():
                 dJdV += return_vals[3]
                 dJdW += return_vals[4]
                 dJdU += return_vals[5]
-                dJdbh += return_vals[6]
-                dJdbi += return_vals[7]
+                dJdbho += return_vals[6]
+                dJdbhh += return_vals[7]
+                dJdbih += return_vals[8]
 
 
             self.update_count += 1
-            self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbh, dJdbi,self.update_count)
+            self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih, self.update_count)
             #calculate total loss here
             self.losses.append(J)
             if self.update_count % 30 == 0:
@@ -213,15 +215,15 @@ class RNNModel():
         dJdV = np.zeros(self.v_shape)
         dJdV_multi = np.matmul(dy.reshape(dy.shape[:] + (1,)), hidden_state_info_activated_actual.reshape(hidden_shape[:-1]+(1,hidden_shape[-1])))
         dJdV = np.sum(dJdV_multi,axis=(0,1))
-        dJdbh = np.sum(dy)
-        dJdbi = 0
-
+        dJdbho = np.sum(dy,axis=(0,-2))
+        dJdbih = np.zeros(self.hidden_size)
+        dJdbhh = np.zeros(self.hidden_size)
         #in reverse direction
         for t in range(T, T-self.truncate-1,-1):
             dh[:,t] += np.dot(dy[:,t],self.V) * (1-hidden_state_info_activated[:,t]**2) #due to the ouput layer
-            total =  np.sum(dh[:,t])
-            dJdbh += total
-            dJdbi += total
+            total =  np.sum(dh[:,t],axis=0)
+            dJdbhh += total
+            dJdbih += total
             #propogate the error back in time
             dout = dh[:,t]
             if(t != T-self.truncate):
@@ -235,7 +237,7 @@ class RNNModel():
             dJdU[:,X[:,t]] += dout.T
 
 
-        return  dJdV, dJdW, dJdU, dJdbh, dJdbi
+        return  dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih
 
 
 
@@ -258,43 +260,49 @@ class RNNModel():
         return J
 
 
-    def updateParamsAdam(self,dJdV, dJdW, dJdU, dJdbh, dJdbi,n_iteration):
+    def updateParamsAdam(self,dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih, n_iteration):
 
         t = n_iteration
 
         self.momentum1_w = self.beta1*self.momentum1_w + (1-self.beta1) * dJdW
         self.momentum1_u = self.beta1*self.momentum1_u + (1-self.beta1) * dJdU
         self.momentum1_v = self.beta1*self.momentum1_v + (1-self.beta1) * dJdV
-        self.momentum1_bh = self.beta1*self.momentum1_bh + (1-self.beta1) * dJdbh
-        self.momentum1_bi = self.beta1*self.momentum1_bi + (1-self.beta1) * dJdbi
+        self.momentum1_bhh = self.beta1*self.momentum1_bhh + (1-self.beta1) * dJdbhh
+        self.momentum1_bho = self.beta1*self.momentum1_bho + (1-self.beta1) * dJdbho
+        self.momentum1_bih = self.beta1*self.momentum1_bih + (1-self.beta1) * dJdbih
+
 
 
 
         self.momentum2_w = self.beta2*self.momentum2_w + (1-self.beta2) * (dJdW**2)
         self.momentum2_u = self.beta2*self.momentum2_u + (1-self.beta2) * (dJdU**2)
         self.momentum2_v = self.beta2*self.momentum2_v + (1-self.beta2) * (dJdV**2)
-        self.momentum2_bh = self.beta2*self.momentum2_bh + (1-self.beta2) * (dJdbh**2)
-        self.momentum2_bi = self.beta2*self.momentum2_bi + (1-self.beta2) * (dJdbi**2)
+        self.momentum2_bhh = self.beta2*self.momentum2_bhh + (1-self.beta2) * (dJdbhh**2)
+        self.momentum2_bih = self.beta2*self.momentum2_bih + (1-self.beta2) * (dJdbih**2)
+        self.momentum2_bho = self.beta2*self.momentum2_bho + (1-self.beta2) * (dJdbho**2)
 
 
         mu1_w = self.momentum1_w/(1-self.beta1**t)
         mu1_u = self.momentum1_u/(1-self.beta1**t)
         mu1_v = self.momentum1_v/(1-self.beta1**t)
-        mu1_bh = self.momentum1_bh/(1-self.beta1**t)
-        mu1_bi = self.momentum1_bi/(1-self.beta1**t)
+        mu1_bhh = self.momentum1_bhh/(1-self.beta1**t)
+        mu1_bih = self.momentum1_bih/(1-self.beta1**t)
+        mu1_bho = self.momentum1_bho/(1-self.beta1**t)
 
 
         mu2_w = self.momentum2_w/(1-self.beta2**t)
         mu2_u = self.momentum2_u/(1-self.beta2**t)
         mu2_v = self.momentum2_v/(1-self.beta2**t)
-        mu2_bh = self.momentum2_bh/(1-self.beta2**t)
-        mu2_bi = self.momentum2_bi/(1-self.beta2**t)
+        mu2_bhh = self.momentum2_bhh/(1-self.beta2**t)
+        mu2_bih = self.momentum2_bih/(1-self.beta2**t)
+        mu2_bho = self.momentum2_bho/(1-self.beta2**t)
 
         self.W -= self.alpha * (mu1_w/np.sqrt(mu2_w+self.offset))
         self.U -= self.alpha * (mu1_u/np.sqrt(mu2_u+self.offset))
         self.V -= self.alpha * (mu1_v/np.sqrt(mu2_v+self.offset))
-        self.bh -= self.alpha * (mu1_bh/np.sqrt(mu2_bh+self.offset))
-        self.bi -= self.alpha * (mu1_bi/np.sqrt(mu2_bi+self.offset))
+        self.bhh -= self.alpha * (mu1_bhh/np.sqrt(mu2_bhh+self.offset))
+        self.bih -= self.alpha * (mu1_bih/np.sqrt(mu2_bih+self.offset))
+        self.bho -= self.alpha * (mu1_bho/np.sqrt(mu2_bho+self.offset))
 
 
 
