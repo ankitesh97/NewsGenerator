@@ -40,6 +40,7 @@ class RNNModel():
         self.v_shape = (self.vocab_size, self.hidden_nodes)
         self.hidden_states_info  = []
         self.losses = [-2] #to keep track of the loss
+        self.losses_after_epochs = []
         self.truncate = params['truncation']
 
         #some values for adam optimization
@@ -70,8 +71,11 @@ class RNNModel():
     def train(self):
         obj = preprocess()
         data = obj.load()
-        X = np.array(list(data.X_train[:train_size]))
-        y = np.array(list(data.y_train[:train_size]))
+        X = np.array(list(data.X_train[:]))
+        y = np.array(list(data.y_train[:]))
+        if train_size != -1:
+            X = np.array(list(data.X_train[:train_size]))
+            y = np.array(list(data.y_train[:train_size]))
         self.randomizeParams()
         print "Everything loaded starting training"
         sys.stdout.flush()
@@ -108,8 +112,30 @@ class RNNModel():
 
     # the predict function returns the calculated output by just calculating the max probability, x is the single sentence
     def predict(self,X):
-        output, _ , _ = self.forwardProp(X)
-        return np.argmax(output, axis=-1)
+        prev_hidden = np.zeros(self.hidden_nodes)
+        output, _ = self.forwardProp(X,prev_hidden)
+        return output
+
+    def generateSent(self, word_to_index, count):
+        start_index = word_to_index['SENTENCE_START']
+        end_index = word_to_index['SENTENCE_END']
+        unknown = word_to_index['UNKNOWN_TOKEN']
+        all_sent = []
+        #generate 5 sentences
+        for i in range(count):
+            new_sent = [[start_index]]
+            while new_sent[0][-1] != end_index:
+                next_word_probabs = self.predict(new_sent)[-1]
+                sampled_word = unknown
+                while sampled_word == unknown:
+                    samples = np.random.multinomial(1,next_word_probabs) #sample some random word
+                    sampled_word = np.argmax(samples)
+                new_sent[-1].append(sampled_word)
+
+            all_sent.append(new_sent[-1])
+
+
+        return all_sent
 
     @staticmethod
     def tanh(z):
@@ -312,6 +338,8 @@ class RNNModel():
         num_cores = 0
         pool_size = 0
         J = -1
+        obj = preprocess()
+        word_to_index = obj.word_to_index
         parallel_flag = params["process_parallel"]
         if parallel_flag == "True":
             parallel_flag = True
@@ -321,9 +349,22 @@ class RNNModel():
             num_cores = multiprocessing.cpu_count()
             pool_size = self.batch_size/num_cores
         for epochs in xrange(n_epochs):
+            if(epochs%2==0):
+                #forward propogate and get the loss
+                prev_hidden = np.zeros(self.hidden_nodes)
+                output, _ = self.forwardProp(X,prev_hidden)
+                L = self.softmaxLoss(softmaxLoss, y)
+                print "Epoch: "+str(epochs)+" over all Loss: "+str(self.L])+" time: "+str(time.time()-start)
+                self.losses_after_epochs.append(L)
+
             if(epochs%5==0):
                 print "Epoch: "+str(epochs)+" Loss: "+str(self.losses[-1])+" time: "+str(time.time()-start)
                 sys.stdout.flush()
+                print self.generateSent(word_to_index, 5)
+                with open("controlTraining.txt",'r') as f:
+                    control = f.read()
+                    if control.strip() == "1":
+                       break
 
 
             np.random.shuffle(zipped)
@@ -338,6 +379,10 @@ class RNNModel():
                     self.tbpttTrainParallel(X_mini,y_mini,parallel_flag,num_cores,pool_size)
                 else:
                     self.tbpttTrain(X_mini,y_mini,parallel_flag,num_cores,pool_size)
+
+
+            #decay the learning rate
+            self.alpha = 1.0*self.alpha/(1+epochs)
 
         print "Loss After Training "+str(self.losses[-1])
         sys.stdout.flush()
