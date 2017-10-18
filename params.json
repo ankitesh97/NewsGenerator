@@ -3,7 +3,8 @@
   "preprocess":{
     "train":0.7,
     "test":0.2,
-    "vocab_size":10000
+    "vocab_size":2000,
+    "total":30000
   },
   "hidden_nodes":10,
   "truncation":10,
