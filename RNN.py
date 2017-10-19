@@ -9,9 +9,9 @@ import sys
 
 p_file = open('params.json','r')
 params = json.loads(p_file.read())
-np.random.seed(10)
+np.random.seed(20)
 start = time.time()
-
+title_len = 20
 
 
 MODEL_FILE = 'modelv1'
@@ -47,16 +47,16 @@ class RNNModel():
         self.momentum1_w = np.zeros(self.w_shape)
         self.momentum1_u = np.zeros(self.u_shape)
         self.momentum1_v = np.zeros(self.v_shape)
-        self.momentum1_bhh = np.zeros(self.hidden_size)
+        self.momentum1_bhh = np.zeros(self.hidden_nodes)
         self.momentum1_bho = np.zeros(self.word_dim)
-        self.momentum1_bih = np.zeros(self.hidden_size)
+        self.momentum1_bih = np.zeros(self.hidden_nodes)
 
         self.momentum2_w = np.zeros(self.w_shape)
         self.momentum2_u = np.zeros(self.u_shape)
         self.momentum2_v = np.zeros(self.v_shape)
-        self.momentum1_bhh = np.zeros(self.hidden_size)
-        self.momentum1_bho = np.zeros(self.word_dim)
-        self.momentum1_bih = np.zeros(self.hidden_size)
+        self.momentum2_bhh = np.zeros(self.hidden_nodes)
+        self.momentum2_bho = np.zeros(self.word_dim)
+        self.momentum2_bih = np.zeros(self.hidden_nodes)
         #hyperparamters
         self.alpha = params['alpha']
         self.beta1 = params['beta1']
@@ -79,7 +79,7 @@ class RNNModel():
         self.randomizeParams()
         print "Everything loaded starting training"
         sys.stdout.flush()
-        self.miniBatchGd(X,y)
+        self.miniBatchGd(X,y,data.word_to_index,data.index_to_word)
 
     #takes a The whole dataset as the input and forward propogates for that
     def forwardProp(self,X,prev_hidden):
@@ -95,28 +95,27 @@ class RNNModel():
         output = np.zeros((dp,T,self.word_dim)) #fist one should not be considered, therefore indexing is from 1 to T
         for t in np.arange(0,T):
             curr_hidden_state_info = hidden_state_info[:,t-1,:].reshape(dp,1,self.hidden_nodes)
-            hidden_to_hidden = self.bhh + np.dot(curr_hidden_state_info,self.W.T).squeeze()
+            hidden_to_hidden = self.bhh + np.dot(curr_hidden_state_info,self.W.T).squeeze(axis=-2)
             input_to_hidden = self.bih + (self.U[:,X[:,t]]).T
             non_activated = hidden_to_hidden+input_to_hidden
             activated = self.tanh(non_activated)
             hidden_state_info[:,t] = non_activated
             hidden_state_info_activated[:,t] = activated
-            curr_output = self.bh0 + np.dot(hidden_state_info_activated[:,t].reshape(dp,1,self.hidden_nodes),self.V.T).squeeze()
+            curr_output = self.bho + np.dot(hidden_state_info_activated[:,t].reshape(dp,1,self.hidden_nodes),self.V.T).squeeze(axis=-2)
             probab = self.softmax(curr_output)
             output[:,t] = probab
 
         #returns the information for the whole dataset
-
         return output, hidden_state_info_activated
 
 
     # the predict function returns the calculated output by just calculating the max probability, x is the single sentence
     def predict(self,X):
-        prev_hidden = np.zeros(self.hidden_nodes)
+        prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
         output, _ = self.forwardProp(X,prev_hidden)
         return output
 
-    def generateSent(self, word_to_index, count):
+    def generateSent(self, word_to_index, count,index_to_word):
         start_index = word_to_index['SENTENCE_START']
         end_index = word_to_index['SENTENCE_END']
         unknown = word_to_index['UNKNOWN_TOKEN']
@@ -124,15 +123,19 @@ class RNNModel():
         #generate 5 sentences
         for i in range(count):
             new_sent = [[start_index]]
-            while new_sent[0][-1] != end_index:
-                next_word_probabs = self.predict(new_sent)[-1]
+            while new_sent[0][-1] != end_index and len(new_sent[0])<=title_len:
+
+                s = np.array(new_sent)
+                next_word_probabs = self.predict(s)[-1][-1]
                 sampled_word = unknown
                 while sampled_word == unknown:
                     samples = np.random.multinomial(1,next_word_probabs) #sample some random word
                     sampled_word = np.argmax(samples)
                 new_sent[-1].append(sampled_word)
 
-            all_sent.append(new_sent[-1])
+            s = ' '.join([index_to_word[x] for x in new_sent[-1][1:]])
+
+            all_sent.append(s)
 
 
         return all_sent
@@ -144,19 +147,20 @@ class RNNModel():
 
     @staticmethod
     def softmax(X):
-        X -= np.max(X,axis=-1).reshape(-1,1) #for numeric stability
+        l = len(X)
+        X -= np.max(X,axis=-1).reshape(l,1) #for numeric stability
         expo = np.exp(X)
-        return 1.0*expo/np.sum(expo,axis=-1).reshape(-1,1)
+        return 1.0*expo/np.sum(expo,axis=-1).reshape(l,1)
 
 
     def randomizeParams(self):
         # xavier initialization
         self.W = np.random.randn(self.w_shape[0],self.w_shape[1]) * np.sqrt(1.0/(1+self.hidden_nodes))
         self.bhh = np.random.randn(self.hidden_nodes) * np.sqrt(1.0/(1+self.hidden_nodes)) #hidden to hidden layer bias
-        self.U = np.random.randn(self.u_shape[0],self.u_shape[1]) * np.sqrt(1.0/(1+*self.word_dim))
+        self.U = np.random.randn(self.u_shape[0],self.u_shape[1]) * np.sqrt(1.0/(1+self.word_dim))
         self.bih = np.random.randn(self.hidden_nodes) * np.sqrt(1.0/(1+self.word_dim)) #input to hidden bias
         self.V = np.random.randn(self.v_shape[0],self.v_shape[1]) * np.sqrt(1.0/self.hidden_nodes+1)
-        self.bho = np.random.randn(self.vocab_size) * np.sqrt(1.0/(1+*self.word_dim)) #hidden to output bias
+        self.bho = np.random.randn(self.vocab_size) * np.sqrt(1.0/(1+self.word_dim)) #hidden to output bias
 
 
 
@@ -178,10 +182,6 @@ class RNNModel():
             dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
             self.update_count += 1
             self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih, self.update_count)
-            if self.update_count % 30 == 0:
-                print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)
-                sys.stdout.flush()
-        print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)
         sys.stdout.flush()
 
 
@@ -197,8 +197,8 @@ class RNNModel():
             dJdW = np.zeros(self.w_shape)
             dJdU = np.zeros(self.u_shape)
             dJdV = np.zeros(self.v_shape)
-            dJdbhh = np.zeros(self.hidden_size)
-            dJdbih = np.zeros(self.hidden_size)
+            dJdbhh = np.zeros(self.hidden_nodes)
+            dJdbih = np.zeros(self.hidden_nodes)
             dJdbho = np.zeros(self.word_dim)
             for return_vals in all_return_values:
                 im = return_vals[0]
@@ -216,10 +216,6 @@ class RNNModel():
             self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih, self.update_count)
             #calculate total loss here
             self.losses.append(J)
-            if self.update_count % 30 == 0:
-                print "After Updates: "+str(self.update_count)+" updates inside bptt Loss: " +str(J)+" time: "+str(time.time()-start)
-                sys.stdout.flush()
-        print "After Updates For this batch: "+str(self.update_count)+" Loss: " +str(J)
         sys.stdout.flush()
 
 
@@ -233,7 +229,7 @@ class RNNModel():
         hidden_shape = hidden_state_info_activated_actual.shape
         tmp = np.array(list(np.arange(y_predicted.shape[-2]))*m)
         dy = y_predicted
-        dh =  np.zeros((m, time_steps, self.hidden_nodes))#error at hidden layer nodes shape mxTxhidden_size
+        dh =  np.zeros((m, time_steps, self.hidden_nodes))#error at hidden layer nodes shape mxTxhidden_nodes
         dJdW = np.zeros(self.w_shape)
         dJdU = np.zeros(self.u_shape)
 
@@ -242,10 +238,10 @@ class RNNModel():
         dJdV_multi = np.matmul(dy.reshape(dy.shape[:] + (1,)), hidden_state_info_activated_actual.reshape(hidden_shape[:-1]+(1,hidden_shape[-1])))
         dJdV = np.sum(dJdV_multi,axis=(0,1))
         dJdbho = np.sum(dy,axis=(0,-2))
-        dJdbih = np.zeros(self.hidden_size)
-        dJdbhh = np.zeros(self.hidden_size)
+        dJdbih = np.zeros(self.hidden_nodes)
+        dJdbhh = np.zeros(self.hidden_nodes)
         #in reverse direction
-        for t in range(T, T-self.truncate-1,-1):
+        for t in range(min(T,dy.shape[-2]-1), T-self.truncate-1,-1):
             dh[:,t] += np.dot(dy[:,t],self.V) * (1-hidden_state_info_activated[:,t]**2) #due to the ouput layer
             total =  np.sum(dh[:,t],axis=0)
             dJdbhh += total
@@ -332,14 +328,12 @@ class RNNModel():
 
 
 
-    def miniBatchGd(self,X,y):
+    def miniBatchGd(self,X,y,word_to_index,index_to_word):
         n_epochs = params['epochs']
         zipped = zip(X,y)
         num_cores = 0
         pool_size = 0
         J = -1
-        obj = preprocess()
-        word_to_index = obj.word_to_index
         parallel_flag = params["process_parallel"]
         if parallel_flag == "True":
             parallel_flag = True
@@ -349,21 +343,32 @@ class RNNModel():
             num_cores = multiprocessing.cpu_count()
             pool_size = self.batch_size/num_cores
         for epochs in xrange(n_epochs):
-            if(epochs%2==0):
+            if(epochs%3==0):
                 #forward propogate and get the loss
-                prev_hidden = np.zeros(self.hidden_nodes)
+                prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
                 output, _ = self.forwardProp(X,prev_hidden)
-                L = self.softmaxLoss(softmaxLoss, y)
-                print "Epoch: "+str(epochs)+" over all Loss: "+str(self.L])+" time: "+str(time.time()-start)
+                L = self.softmaxLoss(output, y)
+                print "Epoch: "+str(epochs)+" over all Loss: "+str(L)+" time: "+str(time.time()-start)
+                sys.stdout.flush()
                 self.losses_after_epochs.append(L)
 
             if(epochs%5==0):
-                print "Epoch: "+str(epochs)+" Loss: "+str(self.losses[-1])+" time: "+str(time.time()-start)
+                print "-------------------------------------"
+                print "Sentences at Epoch: "+str(epochs)
+                try:
+                    for num, x in enumerate(self.generateSent(word_to_index, 5,index_to_word)):
+                        print str(num+1)+' --- '+x
+
+                except Exception as e:
+                    print "some unicode charachter occured"
+                print "-------------------------------------"
                 sys.stdout.flush()
-                print self.generateSent(word_to_index, 5)
+
                 with open("controlTraining.txt",'r') as f:
                     control = f.read()
                     if control.strip() == "1":
+                       print "stopping the training process .........."
+                       sys.stdout.flush()
                        break
 
 

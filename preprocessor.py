@@ -126,7 +126,6 @@ class preprocess():
 
 
 
-
     def convertToXy(self, tokenized):
         X = []
         y = []
@@ -138,8 +137,8 @@ class preprocess():
 
     def splitData(self):
         total = len(self.X)
-        n_train = int(params['preprocess']['train']) * total
-        n_test = int(params['preprocess']['train']) * total
+        n_train = int(float(params['preprocess']['train']) * total)
+        n_test = int(float(params['preprocess']['train']) * total)
 
         self.X_train = self.X[:n_train]
         self.X_test = self.X[n_train:n_train+n_test]
