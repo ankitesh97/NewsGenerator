@@ -9,11 +9,11 @@ import sys
 
 p_file = open('params.json','r')
 params = json.loads(p_file.read())
-np.random.seed(20)
+np.random.seed(4)
 start = time.time()
-title_len = 20
+title_len = 10
 
-
+gradCheck = False
 MODEL_FILE = 'modelv1'
 train_size = params['training_size']
 
@@ -79,6 +79,8 @@ class RNNModel():
         self.randomizeParams()
         print "Everything loaded starting training"
         sys.stdout.flush()
+        if gradCheck:
+            self.gradientCheck(X,y)
         self.miniBatchGd(X,y,data.word_to_index,data.index_to_word)
 
     #takes a The whole dataset as the input and forward propogates for that
@@ -87,14 +89,13 @@ class RNNModel():
         # this function receives a sentence (in terms of index 2d array)
         T = X.shape[-1]
         dp = X.shape[0]
-
         hidden_state_info_activated = np.zeros((dp,T+1,self.hidden_nodes)) #for every training example i have a hidden state info
         hidden_state_info = np.zeros((dp,T+1,self.hidden_nodes))
-        hidden_state_info[:,-1] = prev_hidden
+        hidden_state_info_activated[:,-1] = prev_hidden
 
         output = np.zeros((dp,T,self.word_dim)) #fist one should not be considered, therefore indexing is from 1 to T
         for t in np.arange(0,T):
-            curr_hidden_state_info = hidden_state_info[:,t-1,:].reshape(dp,1,self.hidden_nodes)
+            curr_hidden_state_info = hidden_state_info_activated[:,t-1,:].reshape(dp,1,self.hidden_nodes)
             hidden_to_hidden = self.bhh + np.dot(curr_hidden_state_info,self.W.T).squeeze(axis=-2)
             input_to_hidden = self.bih + (self.U[:,X[:,t]]).T
             non_activated = hidden_to_hidden+input_to_hidden
@@ -132,6 +133,9 @@ class RNNModel():
                     samples = np.random.multinomial(1,next_word_probabs) #sample some random word
                     sampled_word = np.argmax(samples)
                 new_sent[-1].append(sampled_word)
+
+            if new_sent[-1][-1] == end_index:
+                new_sent[-1].pop()
 
             s = ' '.join([index_to_word[x] for x in new_sent[-1][1:]])
 
@@ -241,22 +245,31 @@ class RNNModel():
         dJdbih = np.zeros(self.hidden_nodes)
         dJdbhh = np.zeros(self.hidden_nodes)
         #in reverse direction
-        for t in range(min(T,dy.shape[-2]-1), T-self.truncate-1,-1):
-            dh[:,t] += np.dot(dy[:,t],self.V) * (1-hidden_state_info_activated[:,t]**2) #due to the ouput layer
+
+        for t in range(min(T,dy.shape[-2]-1), T-self.truncate,-1):
+            dh[:,t] += np.dot(dy[:,t],self.V) * (1-hidden_state_info_activated_actual[:,t]**2) #due to the ouput layer
             total =  np.sum(dh[:,t],axis=0)
             dJdbhh += total
             dJdbih += total
             #propogate the error back in time
             dout = dh[:,t]
-            if(t != T-self.truncate):
-                dh[:,t-1] += np.dot(dh[:,t],self.W) * (1-hidden_state_info_activated[:,t-1]**2)
+            if(t != T-self.truncate+1):
+                dh[:,t-1] += np.dot(dh[:,t],self.W) * (1 - hidden_state_info_activated[:,t-1]**2)
                 #now calculate the error wrt to  time weights
-                ain = hidden_state_info_activated[:,t-1]
-                dJdW_vect = np.matmul(dout.reshape(dout.shape[:]+(1,)), ain.reshape(ain.shape[:-1] + (1,ain.shape[-1])))
-                dJdW += np.sum(dJdW_vect,axis=0)
+            ain = hidden_state_info_activated[:,t-1]
+            dJdW_vect = np.matmul(dout.reshape(dout.shape[:]+(1,)), ain.reshape(ain.shape[:-1] + (1,ain.shape[-1])))
+            dJdW += np.sum(dJdW_vect,axis=0)
+
 
             # grads wrt to U
-            dJdU[:,X[:,t]] += dout.T
+
+            if len(set(X[:,t])) == len(X[:,t]):
+                dJdU[:,X[:,t]] += dout.T
+            else:
+                update_cols = X[:,t]
+                tpose = dout.T
+                for dps in range(len(update_cols)):
+                    dJdU[:,update_cols[dps]] += tpose[:,dps]
 
 
         return  dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih
@@ -278,7 +291,7 @@ class RNNModel():
         correct_words = y_predicted[np.arange(m).reshape(m,1), tmp.reshape(m,y_predicted.shape[-2]), y]
         correct_words[correct_words <= 1e-10] += 1e-10 #to avoid nan
         total_error = -1.0*np.log(correct_words)
-        J = np.sum(total_error)/m
+        J = np.sum(total_error)
         return J
 
 
@@ -389,10 +402,45 @@ class RNNModel():
             #decay the learning rate
             self.alpha = 1.0*self.alpha/(1+epochs)
 
-        print "Loss After Training "+str(self.losses[-1])
+        prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
+        output, _ = self.forwardProp(X,prev_hidden)
+        L = self.softmaxLoss(output, y)
+        print "Epoch: "+str(epochs)+" over all Loss after training: "+str(L)+" time: "+str(time.time()-start)
+        sys.stdout.flush()
+        self.losses_after_epochs.append(L)
         sys.stdout.flush()
 
 
+    def gradientCheck(self,X,y):
+       epsi = 1e-7
+       act_X = X[:,:self.truncate]
+       act_y = y[:,:self.truncate]
+       prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
+       approx = np.zeros(self.w_shape)
+       y_predicted,hidden_state_info_activated = self.forwardProp(act_X,prev_hidden)
+       print "ddddddddddddddddddd"
+       print y_predicted.shape
+       print "ddddddddddddddddddd"
+
+       dJdV, dJdW, dJdU, dJdbho , dJdbhh, dJdbih  = self.tbptt(act_X, act_y, y_predicted,hidden_state_info_activated,(0+self.truncate-1)%self.truncate)
+
+       #check u
+       for i in range(self.W.shape[0]):
+           for j in range(self.W.shape[-1]):
+            #    print i, j
+               self.W[i][j] += epsi
+               out, _ = self.forwardProp(act_X,prev_hidden)
+               J1 = self.softmaxLoss(out, act_y)
+               self.W[i][j] -= 2*epsi
+               out, _ = self.forwardProp(act_X,prev_hidden)
+               J2 = self.softmaxLoss(out, act_y)
+               approx[i][j] = (1.0*(J1-J2))/(2*epsi)
+               self.W[i][j] += epsi
+
+       print approx
+       nume = np.linalg.norm(approx-dJdW)
+       deno = np.linalg.norm(dJdW) + np.linalg.norm(approx)
+       print "ratio is " +  str(nume/deno)
 
 
 if __name__ == '__main__':

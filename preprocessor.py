@@ -9,13 +9,13 @@ import time
 
 
 params = json.loads(open("params.json").read())
-link_to_replace_with = " https://examplearticle/exres/abcd.com "
-twitter_link_to_replace = " img.twitter.com/abcdxyz "
+link_to_replace_with = " https//examplearticle/exres/abcd.com "
+twitter_link_to_replace = " imgtwittercom/abcdxyz "
 VOCAB_SIZE = params['preprocess']['vocab_size']
 SENTENCE_START = 'SENTENCE_START'
 SENTENCE_END = 'SENTENCE_END'
 UNKNOWN_TOKEN = 'UNKNOWN_TOKEN'
-FILE_NAME = 'dataVectorizedv1.0'
+FILE_NAME = 'dataVectorizedv1.1'
 
 class preprocess():
 
@@ -73,6 +73,7 @@ class preprocess():
         compiled = re.compile(pattern)
         cleaned_data = []
         for sent in self.data:
+            print sent, compiled.sub(link_to_replace_with,sent)
             cleaned_data.append(compiled.sub(link_to_replace_with,sent))
 
         self.data = cleaned_data
