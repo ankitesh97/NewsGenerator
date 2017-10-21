@@ -9,13 +9,14 @@ import sys
 
 p_file = open('params.json','r')
 params = json.loads(p_file.read())
-np.random.seed(4)
+np.random.seed(0)
 start = time.time()
-title_len = 10
+title_len = 12
 
 gradCheck = False
-MODEL_FILE = 'modelv1'
+MODEL_FILE = 'modelv2'
 train_size = params['training_size']
+truetbttFlag = params['trueTbtt']
 
 def execParallel(self,X,y,t,prev_hidden,im):
     y_predicted,hidden_state_info_activated = self.forwardProp(X[:,t:t+self.truncate],prev_hidden)
@@ -24,6 +25,13 @@ def execParallel(self,X,y,t,prev_hidden,im):
     #now backpropogate
     dJdV, dJdW, dJdU, dJdbho , dJdbhh, dJdbih  = self.tbptt(X[:,t:t+self.truncate], y[:,t:t+self.truncate], y_predicted,hidden_state_info_activated,(t+self.truncate-1)%self.truncate)
     return im,tmp, J, dJdV, dJdW, dJdU, dJdbho , dJdbhh, dJdbih
+
+
+def trueExecParallel(self, X, y, prev_hidden, im):
+    y_predicted, hidden_state_info_activated = self.forwardProp(X,prev_hidden)
+    J = self.softmaxLoss(y_predicted, y)
+    dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih = self.trueTbtt(X, y, y_predicted, hidden_state_info_activated)
+    return im, -1, J, dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih
 
 class RNNModel():
     def __init__(self):
@@ -71,8 +79,9 @@ class RNNModel():
     def train(self):
         obj = preprocess()
         data = obj.load()
-        X = np.array(list(data.X_train[:]))
-        y = np.array(list(data.y_train[:]))
+        X = np.array(list(data.X_train[:])).astype(int)
+        y = np.array(list(data.y_train[:])).astype(int)
+
         if train_size != -1:
             X = np.array(list(data.X_train[:train_size]))
             y = np.array(list(data.y_train[:train_size]))
@@ -80,7 +89,7 @@ class RNNModel():
         print "Everything loaded starting training"
         sys.stdout.flush()
         if gradCheck:
-            self.gradientCheck(X,y)
+            self.gradientCheckTrue(X,y)
         self.miniBatchGd(X,y,data.word_to_index,data.index_to_word)
 
     #takes a The whole dataset as the input and forward propogates for that
@@ -277,12 +286,72 @@ class RNNModel():
 
 
     #this is the true tbtt apply this with SGD
-    def trueTbttTrain(self):
-        pass
+    def trueTbttTrainParallel(self,X,y,flag, num_cores, pool_size):
+        prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
+        J = 0
+        ite = [delayed(trueExecParallel)(self,X[im:im+pool_size],y[im:im+pool_size],prev_hidden[im:im+pool_size],im) for im in range(0,len(X),pool_size)]
+        all_return_values = Parallel(n_jobs=num_cores)(ite)
+        all_return_values.sort(key=lambda j: j[0])
+        dJdW = np.zeros(self.w_shape)
+        dJdU = np.zeros(self.u_shape)
+        dJdV = np.zeros(self.v_shape)
+        dJdbhh = np.zeros(self.hidden_nodes)
+        dJdbih = np.zeros(self.hidden_nodes)
+        dJdbho = np.zeros(self.word_dim)
+        for return_vals in all_return_values:
+            im = return_vals[0]
+            J += return_vals[2]
+            dJdV += return_vals[3]
+            dJdW += return_vals[4]
+            dJdU += return_vals[5]
+            dJdbho += return_vals[6]
+            dJdbhh += return_vals[7]
+            dJdbih += return_vals[8]
 
 
-    def trueTbtt(self):
-        pass
+        #calculate total loss here
+        self.losses.append(J)
+        return  dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih
+
+
+
+    def trueTbtt(self, X, y, y_predicted, hidden_state_info_activated):
+        m = y.shape[0]
+        time_steps = y.shape[1]
+        tmp = np.array(list(np.arange(y_predicted.shape[-2]))*m)
+        hidden_state_info_activated_actual = hidden_state_info_activated[:,:-1]
+        hidden_shape = hidden_state_info_activated_actual.shape
+        dy = y_predicted
+        dJdW = np.zeros(self.w_shape)
+        dJdU = np.zeros(self.u_shape)
+        dy[np.arange(m).reshape(m,1), tmp.reshape(m,y_predicted.shape[-2]), y] -= 1
+        dJdV = np.zeros(self.v_shape)
+        dJdV_multi = np.matmul(dy.reshape(dy.shape[:] + (1,)), hidden_state_info_activated_actual.reshape(hidden_shape[:-1]+(1,hidden_shape[-1])))
+        dJdV = np.sum(dJdV_multi,axis=(0,1))
+        dJdbho = np.sum(dy,axis=(0,-2))
+        dJdbih = np.zeros(self.hidden_nodes)
+        dJdbhh = np.zeros(self.hidden_nodes)
+        for t in np.arange(time_steps)[::-1]:
+            delta_h = np.dot(dy[:,t],self.V) * (1-hidden_state_info_activated_actual[:,t]**2)
+            for bptt_step in np.arange(max(0,t-self.truncate),t+1)[::-1]:
+                ain = hidden_state_info_activated[:,bptt_step-1]
+                dJdW_vect = np.matmul(delta_h.reshape(delta_h.shape[:]+(1,)), ain.reshape(ain.shape[:-1] + (1,ain.shape[-1])))
+                dJdW += np.sum(dJdW_vect,axis=0)
+                total = np.sum(delta_h,axis=0)
+                dJdbhh += total
+                dJdbih += total
+                if len(set(X[:,bptt_step])) == len(X[:,bptt_step]):
+                    dJdU[:,X[:,bptt_step]] += delta_h.T
+                else:
+                    update_cols = X[:,bptt_step]
+                    tpose = delta_h.T
+                    for dps in range(len(update_cols)):
+                        dJdU[:,update_cols[dps]] += tpose[:,dps]
+                delta_h = np.dot(delta_h,self.W) * (1 - hidden_state_info_activated[:,bptt_step-1]**2)
+
+        return  dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih
+
+
 
 
     def softmaxLoss(self, y_predicted, y):
@@ -347,6 +416,9 @@ class RNNModel():
         num_cores = 0
         pool_size = 0
         J = -1
+        count = 0
+        m = X.shape[0]
+
         parallel_flag = params["process_parallel"]
         if parallel_flag == "True":
             parallel_flag = True
@@ -360,7 +432,7 @@ class RNNModel():
                 #forward propogate and get the loss
                 prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
                 output, _ = self.forwardProp(X,prev_hidden)
-                L = self.softmaxLoss(output, y)
+                L = 1.0 * self.softmaxLoss(output, y)/m
                 print "Epoch: "+str(epochs)+" over all Loss: "+str(L)+" time: "+str(time.time()-start)
                 sys.stdout.flush()
                 self.losses_after_epochs.append(L)
@@ -394,7 +466,12 @@ class RNNModel():
                 X_mini = X[i:i+self.batch_size]
                 y_mini = y[i:i+self.batch_size]
                 if parallel_flag:
-                    self.tbpttTrainParallel(X_mini,y_mini,parallel_flag,num_cores,pool_size)
+                    if truetbttFlag == "True":
+                        count += 1
+                        dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih = self.trueTbttTrainParallel(X_mini, y_mini, parallel_flag, num_cores, pool_size)
+                        self.updateParamsAdam(dJdV, dJdW, dJdU, dJdbho, dJdbhh, dJdbih, count)
+                    else:
+                        self.tbpttTrainParallel(X_mini,y_mini,parallel_flag,num_cores,pool_size)
                 else:
                     self.tbpttTrain(X_mini,y_mini,parallel_flag,num_cores,pool_size)
 
@@ -437,6 +514,34 @@ class RNNModel():
                approx[i][j] = (1.0*(J1-J2))/(2*epsi)
                self.W[i][j] += epsi
 
+       print approx
+       nume = np.linalg.norm(approx-dJdW)
+       deno = np.linalg.norm(dJdW) + np.linalg.norm(approx)
+       print "ratio is " +  str(nume/deno)
+
+
+    def gradientCheckTrue(self,X,y):
+       epsi = 1e-7
+       prev_hidden = np.zeros((X.shape[0],self.hidden_nodes))
+       approx = np.zeros(self.w_shape)
+       y_predicted,hidden_state_info_activated = self.forwardProp(X,prev_hidden)
+
+       dJdV, dJdW, dJdU, dJdbho , dJdbhh, dJdbih  = self.trueTbtt(X, y, y_predicted,hidden_state_info_activated)
+
+       #check u
+       for i in range(self.W.shape[0]):
+           for j in range(self.W.shape[-1]):
+            #    print i, j
+               self.W[i][j] += epsi
+               out, _ = self.forwardProp(X,prev_hidden)
+               J1 = self.softmaxLoss(out, y)
+               self.W[i][j] -= 2*epsi
+               out, _ = self.forwardProp(X,prev_hidden)
+               J2 = self.softmaxLoss(out, y)
+               approx[i][j] = (1.0*(J1-J2))/(2*epsi)
+               self.W[i][j] += epsi
+
+       print dJdW
        print approx
        nume = np.linalg.norm(approx-dJdW)
        deno = np.linalg.norm(dJdW) + np.linalg.norm(approx)

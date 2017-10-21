@@ -73,7 +73,6 @@ class preprocess():
         compiled = re.compile(pattern)
         cleaned_data = []
         for sent in self.data:
-            print sent, compiled.sub(link_to_replace_with,sent)
             cleaned_data.append(compiled.sub(link_to_replace_with,sent))
 
         self.data = cleaned_data
