@@ -17,6 +17,10 @@
   "epochs":100,
   "process_parallel":"True",
   "training_size":64,
-  "trueTbtt":"True"
+  "trueTbtt":"True",
+
+  "gru":{
+    "hidden_nodes":10
+  }
 
 }
