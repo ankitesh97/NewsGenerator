@@ -101,7 +101,6 @@ class GRUCell:
         dy[np.arange(X.shape[0]),y[:,t]] -= 1
         #pass to the hidden layer
         dhidden = self.errors['hidden']
-        print weights['V'].shape
         dhidden += np.dot(dy, weights['V']) #this is the error propogated to both the components that added up to get the current hidden state
 
         #error at the update gate
@@ -136,6 +135,73 @@ class GRUCell:
         self.errors['prev'] = dprev
 
 
+    def addErrorFromNextCell(self,error_from_next):
+        self.errors['hidden'] += error_from_next
+
+    def getdJdW(self,X,weights,t):
+        ts = self.cache['current_hidden'].shape
+        dJdV = np.matmul(self.errors['output'].reshape(self.errors['output'].shape+(1,)), self.cache['current_hidden'].reshape((ts[0],1,ts[1])))
+        dJdV = np.sum(dJdV,axis=0)
+
+        dJdb = np.sum(self.errors['output'],axis=0)
+
+        #for parameters of the variable inter in the memory gate
+        ain_inter = self.cache['reset_gate'] * self.cache['prev_hidden']
+        ain_inter = ain_inter.reshape((ain_inter.shape[0],1,ain_inter.shape[1]))
+        dJdWg = np.matmul(self.errors['memory_gate'].reshape(self.errors['memory_gate'].shape+(1,)), ain_inter)
+        dJdWg = np.sum(dJdWg,axis=0)
+
+        dJdUg = np.zeros(weights['Ug'].shape)
+        if len(set(X[:,t])) == len(X[:,t]):
+            dJdUg[:,X[:,t]] += self.errors['memory_gate'].T
+        else:
+            update_cols = X[:,t]
+            tpose = self.errors['memory_gate'].T
+            for dps in range(len(update_cols)):
+                dJdUg[:,update_cols[dps]] += tpose[:,dps]
+
+        dJdbg = np.sum(self.errors['memory_gate'], axis=0)
+        dJdbig = np.sum(self.errors['memory_gate'], axis=0)
+
+
+        #weights in update gate
+        ts = self.errors['update_gate'].shape
+        ths = self.cache['prev_hidden'].shape
+        dJdWhz = np.matmul(self.errors['update_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
+        dJdWhz = np.sum(dJdWhz, axis=0)
+        dJdbhz = np.sum(self.errors['update_gate'],axis=0)
+        dJdbiz = np.sum(self.errors['update_gate'],axis=0)
+
+        dJdUiz = np.zeros(weights['Uiz'].shape)
+        if len(set(X[:,t])) == len(X[:,t]):
+            dJdUiz[:,X[:,t]] += self.errors['update_gate'].T
+        else:
+            update_cols = X[:,t]
+            tpose = self.errors['update_gate'].T
+            for dps in range(len(update_cols)):
+                dJdUiz[:,update_cols[dps]] += tpose[:,dps]
+
+
+        #weights in reset gate
+        dJdWhr = np.matmul(self.errors['reset_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
+        dJdWhr = np.sum(dJdWhr, axis=0)
+        dJdbhr = np.sum(self.errors['reset_gate'],axis=0)
+        dJdbir = np.sum(self.errors['reset_gate'],axis=0)
+
+        dJdUir = np.zeros(weights['Uir'].shape)
+        if len(set(X[:,t])) == len(X[:,t]):
+            dJdUir[:,X[:,t]] += self.errors['reset_gate'].T
+        else:
+            update_cols = X[:,t]
+            tpose = self.errors['reset_gate'].T
+            for dps in range(len(update_cols)):
+                dJdUir[:,update_cols[dps]] += tpose[:,dps]
+
+
+        dJdWeights = dict(dJdWhz=dJdWhz, dJdWhr=dJdWhr, dJdWg=dJdWg, dJdUiz=dJdUiz, dJdUir=dJdUir, dJdUg=dJdUg, dJdbhz=dJdbhz, dJdbhr=dJdbhr, dJdbg=dJdbg, dJdbiz=dJdbiz, dJdbir=dJdbir, dJdbig=dJdbig, dJdV=dJdV, dJdb=dJdb)
+        return dJdWeights
+
+
 if __name__ == '__main__':
     obj = preprocess()
     data = obj.load()
@@ -148,4 +214,6 @@ if __name__ == '__main__':
     cell.forward(X, prev_hidden, 0, weights)
     # print cell.cache
     cell.backprop(X,y,0,weights)
-    print cell.errors
+    # print cell.errors
+    dj = cell.getdJdW(X,weights,0)
+    print dj
