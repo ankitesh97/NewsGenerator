@@ -13,6 +13,7 @@ p_file = open('params.json','r')
 p = json.loads(p_file.read())
 params = p["gru"]
 
+np.random.seed(0)
 
 class Gru:
 
@@ -60,4 +61,6 @@ class Gru:
 
         self.b = np.random.randn(self.word_dim) * np.sqrt(1.0/(1+self.word_dim))
 
-        
+    def get_weights(self):
+        weights = dict(Whz=self.Whz, Whr=self.Whr, Wg=self.Wg, Uiz=self.Uiz, Uir=self.Uir, Ug=self.Ug, bhz=self.bhz, bhr=self.bhr, bg=self.bg, biz=self.biz, bir=self.bir, big=self.big, V=self.V, b=self.b)
+        return weights
