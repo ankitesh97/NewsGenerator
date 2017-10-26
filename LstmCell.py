@@ -45,10 +45,11 @@ class LstmCell:
         output_gate = self.outputGate(X,weights['Who'],weights['Uio'],weights['bho'],weights['bio'],prev_hidden,time_step,self.sigmoid)
         gate_gate = self.gateGate(X,weights['Whg'],weights['Uig'],weights['bhg'],weights['big'],prev_hidden,time_step,self.tanh)
         current_cell = self.cellState(forget_gate,prev_cell,input_gate,gate_gate)
-        current_hidden = output_gate * self.tanh(current_cell)
+        current_cell_tan = self.tanh(current_cell)
+        current_hidden = output_gate * self.tanh(current_cell_tan)
         out = weights["b"] + np.dot(current_hidden,weights["V"].T)
         output = self.softmax(out)
-        self.cache = dict(input_gate=input_gate, forget_gate=forget_gate, gate_gate=gate_gate, output_gate=output_gate, current_cell=current_cell, current_hidden=current_hidden, output=output, prev_cell=prev_cell, prev_hidden=prev_hidden)
+        self.cache = dict(input_gate=input_gate, forget_gate=forget_gate, gate_gate=gate_gate, output_gate=output_gate, current_cell=current_cell, current_cell_tan=current_cell_tan,  current_hidden=current_hidden, output=output, prev_cell=prev_cell, prev_hidden=prev_hidden)
 
     @staticmethod
     def inputGate(X, W, U, bh, bi, prev_hidden, t, sig):
@@ -107,5 +108,34 @@ class LstmCell:
         return 1.0*expo/np.sum(expo,axis=-1).reshape(l,1)
 
 
-    def backprop(self):
-        pass
+    def backprop(self, X, y, t, weights):
+        #get the errors in the ouput layer
+        dy = self.cache['output']
+        dy[np.arange(X.shape[0]),y[:,t]] -= 1
+        #pass to the hidden layer
+        dhidden = self.errors['hidden']
+        dhidden += np.dot(dy, weights['V']) #this is the error propogated to both the components that added up to get the current hidden state
+
+        #error at output gate
+        doutput_gate = (dhidden * self.cache['current_cell_tan']) * self.dsigmoid(self.cache['ouput_gate'])
+
+
+        #error at cell gate
+        dcell = self.errors['cell']
+        dcell_from_ht = (dhidden * self.cache['output_gate']) * self.dtanh(self.cache['current_cell_tan'])
+        dcell += dcell_from_ht
+
+        #
+        dprev_cell = dcell * self.cache['forget_gate']
+        dforget_gate = (dcell * self.cache['prev_cell']) * self.dsigmoid(self.cache['forget_gate'])
+        dinput_gate = (dcell * self.cache['gate_gate']) * self.dsigmoid(self.cache['input_gate'])
+        dgate_gate = (dcell * self.cache['input_gate']) * self.dtanh(self.cache['gate_gate'])
+
+        #dprev_hidden
+        dprev_hidden = np.dot(dgate_gate, weights['Whg'])
+        dprev_hidden += np.dot(doutput_gate, weights['Who'])
+        dprev_hidden += np.dot(dforget_gate, weights['Whf'])
+        dprev_hidden += np.dot(dinput_gate, weights['Whi'])
+
+
+        errors = dict(input_gate=dinput_gate, forget_gate=dforget_gate, gate_gate=dgate_gate, output_gate=doutput_gate, cell=dcell, hidden=dhidden, output=dy, prev_cell=dprev_cell, prev_hidden=dprev_hidden)
