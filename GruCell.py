@@ -7,7 +7,7 @@ from joblib import Parallel, delayed
 import time
 import multiprocessing
 import sys
-from Gru import Gru
+# from Gru import Gru
 
 p_file = open('params.json','r')
 p = json.loads(p_file.read())
@@ -87,7 +87,6 @@ class GRUCell:
 
     @staticmethod
     def softmax(outputs):
-        print outputs.shape
         l = len(outputs)
         outputs -= np.max(outputs,axis=-1).reshape(l,1) #for numeric stability
         expo = np.exp(outputs)
@@ -202,18 +201,18 @@ class GRUCell:
         return dJdWeights
 
 
-if __name__ == '__main__':
-    obj = preprocess()
-    data = obj.load()
-    gru  = Gru()
-    weights = gru.get_weights()
-    X = np.array(list(data.X_train[:])).astype(int)[:15]
-    y = np.array(list(data.y_train[:])).astype(int)[:15]
-    cell = GRUCell(X.shape[0])
-    prev_hidden = np.zeros((X.shape[0],params["hidden_nodes"]))
-    cell.forward(X, prev_hidden, 0, weights)
-    # print cell.cache
-    cell.backprop(X,y,0,weights)
-    # print cell.errors
-    dj = cell.getdJdW(X,weights,0)
-    print dj
+# if __name__ == '__main__':
+#     obj = preprocess()
+#     data = obj.load()
+#     gru  = Gru()
+#     weights = gru.get_weights()
+#     X = np.array(list(data.X_train[:])).astype(int)[:15]
+#     y = np.array(list(data.y_train[:])).astype(int)[:15]
+#     cell = GRUCell(X.shape[0])
+#     prev_hidden = np.zeros((X.shape[0],params["hidden_nodes"]))
+#     cell.forward(X, prev_hidden, 0, weights)
+#     # print cell.cache
+#     cell.backprop(X,y,0,weights)
+#     # print cell.errors
+#     dj = cell.getdJdW(X,weights,0)
+#     print dj

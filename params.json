@@ -20,7 +20,16 @@
   "trueTbtt":"True",
 
   "gru":{
-    "hidden_nodes":10
+    "hidden_nodes":10,
+    "alpha":1e-3,
+    "beta1":0.9,
+    "beta2":0.99,
+    "offset":1e-8,
+    "batch_size":{"val":32,"cmt":"for mini batch gd"},
+    "pool_size":{"cmt":"this parameter is for multiprocessing it will divide the batch equally into number of cores available"},
+    "epochs":100,
+    "process_parallel":"True",
+    "training_size":64
   }
 
 }
