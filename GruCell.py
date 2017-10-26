@@ -69,8 +69,6 @@ class GRUCell:
     @staticmethod
     def sigmoid(z):
         #receives m X hidden_nodes
-        l = len(z)
-        z -= np.max(z,axis=-1).reshape(l,1)
         return 1.0/(1 + np.exp(-z))
 
     @staticmethod

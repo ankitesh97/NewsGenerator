@@ -22,7 +22,7 @@ train_size = params['training_size']
 gradCheck = False
 
 
-np.random.seed(0)
+np.random.seed(2)
 
 
 def execParallel(self,X,y,index):
@@ -111,14 +111,14 @@ class Gru:
         sys.stdout.flush()
         if gradCheck:
             self.gradientCheckTrue(X,y)
-
-        self.miniBatchGd(X,y,data.word_to_index,data.index_to_word)
+        else:
+            self.miniBatchGd(X,y,data.word_to_index,data.index_to_word)
 
 
     def forwardProp(self, X):
         cells = []
         m, T = X.shape
-        prev_hidden = np.zeros((m,self.hidden_nodes))
+        prev_hidden = np.ones((m,self.hidden_nodes))
         weights = self.get_weights()
         predicted = np.zeros((m,T,self.word_dim))
         for t in range(T):
@@ -149,8 +149,7 @@ class Gru:
         dJdbig = np.zeros(self.big.shape)
         dJdV = np.zeros(self.V.shape)
         dJdb = np.zeros(self.b.shape)
-
-        for t in range(T-1,0,-1):
+        for t in range(T-1,-1,-1):
             cells[t].addErrorFromNextCell(error_from_next_cell)
             cells[t].backprop(X, y, t, weights)
             grads = cells[t].getdJdW(X, weights, t)
@@ -364,6 +363,54 @@ class Gru:
         self.losses_after_epochs.append(L)
         sys.stdout.flush()
 
+    def gradientCheckTrue(self,X,y):
+       epsi = 1e-7
+       X = X[:,:3]
+       y = y[:,:3]
+       y_predicted,cells = self.forwardProp(X)
+       dJdWhz, dJdWhr, dJdWg, dJdUiz, dJdUir, dJdUg, dJdbhz, dJdbhr, dJdbg, dJdbiz, dJdbir, dJdbig, dJdV, dJdb = self.backprop(X,y,cells)
+       approx = np.zeros(self.Ug.shape)
+       approxb = np.zeros(self.big.shape)
+
+
+       #check u
+
+    #    for bias
+       for i in range(self.big.shape[0]):
+           self.big[i] += epsi
+           out, _ = self.forwardProp(X)
+           J1 = self.softmaxLoss(out, y)
+           self.big[i] -= 2*epsi
+           out, _ = self.forwardProp(X)
+           J2 = self.softmaxLoss(out, y)
+           approxb[i] = (1.0*(J1-J2))/(2*epsi)
+           self.big[i] += epsi
+
+       print dJdbig
+       print approxb
+       nume = np.linalg.norm(approxb-dJdbig)
+       deno = np.linalg.norm(dJdbig) + np.linalg.norm(approxb)
+       print "ratio is " +  str(nume/deno)
+
+       #
+       for i in range(self.Ug.shape[0]):
+           for j in range(self.Ug.shape[-1]):
+            #    print i, j
+               self.Ug[i][j] += epsi
+               out, _ = self.forwardProp(X)
+               J1 = self.softmaxLoss(out, y)
+               self.Ug[i][j] -= 2*epsi
+               out, _ = self.forwardProp(X)
+               J2 = self.softmaxLoss(out, y)
+               approx[i][j] = (1.0*(J1-J2))/(2*epsi)
+               self.Ug[i][j] += epsi
+
+       print dJdUg
+       print approx
+       nume = np.linalg.norm(approx-dJdUg)
+       deno = np.linalg.norm(dJdUg) + np.linalg.norm(approx)
+       print "ratio is " +  str(nume/deno)
+       #
 
 if __name__ == '__main__':
     model = Gru()
