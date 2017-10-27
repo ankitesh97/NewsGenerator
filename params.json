@@ -41,7 +41,7 @@
     "pool_size":{"cmt":"this parameter is for multiprocessing it will divide the batch equally into number of cores available"},
     "epochs":100,
     "process_parallel":"True",
-    "training_size":64
+    "training_size":20
   }
 
 }

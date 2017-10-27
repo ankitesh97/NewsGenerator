@@ -19,7 +19,7 @@ title_len = 12
 
 MODEL_FILE = 'modelLstmv1'
 train_size = params['training_size']
-gradCheck = False
+gradCheck = True
 
 
 np.random.seed(2)
@@ -148,9 +148,9 @@ class Lstm:
 
     @staticmethod
     def unpackGrads(grads, grads_current):
+
         for i in range(len(grads)):
             grads[i] += grads_current[i]
-
         return grads
 
     def softmaxLoss(self, y_predicted, y):
@@ -313,6 +313,49 @@ class Lstm:
         sys.stdout.flush()
         self.losses_after_epochs.append(L)
         sys.stdout.flush()
+
+    def gradientCheckTrue(self,X,y):
+       epsi = 1e-7
+       X = X[:,:2]
+       y = y[:,:2]
+       y_predicted,cells = self.forwardProp(X)
+       grads = self.backprop(X,y,cells)
+       names = ['Whi','Whf','Who','Whg','Uii','Uif','Uio','Uig','V','bhi','bhf','bho','bhg','bii','bif','bio','big','b']
+
+       for i in  range(len(self.weights)):
+           approx = np.zeros(self.weights[i].shape)
+
+           if len(self.weights[i].shape) > 1:
+               for r in range(self.weights[i].shape[0]):
+                   for c in range(self.weights[i].shape[1]):
+                       self.weights[i][r][c] += epsi
+                       out, _  = self.forwardProp(X)
+                       J1 = self.softmaxLoss(out, y)
+                       self.weights[i][r][c] -= 2*epsi
+                       out, _  = self.forwardProp(X)
+                       J2 = self.softmaxLoss(out, y)
+                       approx[r][c] = (1.0*(J1-J2))/(2*epsi)
+                       self.weights[i][r][c] += epsi
+
+               nume = np.linalg.norm(approx-grads[i])
+               deno = np.linalg.norm(grads[i]) + np.linalg.norm(approx)
+               print "ratio of "+names[i]+" " +  str(nume/deno)
+           else:
+               for j in range(len(self.weights[i])):
+                   self.weights[i][j] += epsi
+                   out, _  = self.forwardProp(X)
+                   J1 = self.softmaxLoss(out, y)
+                   self.weights[i][j] -= 2*epsi
+                   out, _  = self.forwardProp(X)
+                   J2 = self.softmaxLoss(out, y)
+                   approx[j] = (1.0*(J1-J2))/(2*epsi)
+                   self.weights[i][j] += epsi
+
+            #    print approx
+            #    print grads[i]
+               nume = np.linalg.norm(approx-grads[i])
+               deno = np.linalg.norm(grads[i]) + np.linalg.norm(approx)
+               print "ratio of "+names[i]+" " +  str(nume/deno)
 
 
 if __name__ == '__main__':

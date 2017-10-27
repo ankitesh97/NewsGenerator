@@ -46,7 +46,7 @@ class LstmCell:
         gate_gate = self.gateGate(X,weights['Whg'],weights['Uig'],weights['bhg'],weights['big'],prev_hidden,time_step,self.tanh)
         current_cell = self.cellState(forget_gate,prev_cell,input_gate,gate_gate)
         current_cell_tan = self.tanh(current_cell)
-        current_hidden = output_gate * self.tanh(current_cell_tan)
+        current_hidden = output_gate * current_cell_tan
         out = weights["b"] + np.dot(current_hidden,weights["V"].T)
         output = self.softmax(out)
         self.cache = dict(input_gate=input_gate, forget_gate=forget_gate, gate_gate=gate_gate, output_gate=output_gate, current_cell=current_cell, current_cell_tan=current_cell_tan,  current_hidden=current_hidden, output=output, prev_cell=prev_cell, prev_hidden=prev_hidden)
@@ -179,16 +179,16 @@ class LstmCell:
 
         ts = self.errors['forget_gate'].shape
         dJdWhf = np.matmul(self.errors['forget_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
-        dJdWhf = np.sum(dJdWhi, axis=0)
-        dJdUif = self._calcForinputU(weights['Uii'].shape, self.errors['forget_gate'], X, t)
+        dJdWhf = np.sum(dJdWhf, axis=0)
+        dJdUif = self._calcForinputU(weights['Uif'].shape, self.errors['forget_gate'], X, t)
         dJdbhf = np.sum(self.errors['forget_gate'], axis = 0)
         dJdbif = np.sum(self.errors['forget_gate'], axis = 0)
 
 
         ts = self.errors['output_gate'].shape
         dJdWho = np.matmul(self.errors['output_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
-        dJdWho = np.sum(dJdWhi, axis=0)
-        dJdUio = self._calcForinputU(weights['Uii'].shape, self.errors['output_gate'], X, t)
+        dJdWho = np.sum(dJdWho, axis=0)
+        dJdUio = self._calcForinputU(weights['Uio'].shape, self.errors['output_gate'], X, t)
         dJdbho = np.sum(self.errors['output_gate'], axis = 0)
         dJdbio = np.sum(self.errors['output_gate'], axis = 0)
 
@@ -196,8 +196,8 @@ class LstmCell:
 
         ts = self.errors['gate_gate'].shape
         dJdWhg = np.matmul(self.errors['gate_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
-        dJdWhg = np.sum(dJdWhi, axis=0)
-        dJdUig = self._calcForinputU(weights['Uii'].shape, self.errors['gate_gate'], X, t)
+        dJdWhg = np.sum(dJdWhg, axis=0)
+        dJdUig = self._calcForinputU(weights['Uig'].shape, self.errors['gate_gate'], X, t)
         dJdbhg = np.sum(self.errors['gate_gate'], axis = 0)
         dJdbig = np.sum(self.errors['gate_gate'], axis = 0)
 
