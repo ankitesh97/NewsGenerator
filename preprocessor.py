@@ -15,7 +15,7 @@ VOCAB_SIZE = params['preprocess']['vocab_size']
 SENTENCE_START = 'SENTENCE_START'
 SENTENCE_END = 'SENTENCE_END'
 UNKNOWN_TOKEN = 'UNKNOWN_TOKEN'
-FILE_NAME = 'dataVectorizedv2.0'
+FILE_NAME = 'dataVectorizedv1.1'
 
 class preprocess():
 

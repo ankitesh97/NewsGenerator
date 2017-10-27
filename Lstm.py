@@ -116,10 +116,10 @@ class Lstm:
         predicted = np.zeros((m,T,self.word_dim))
         for t in range(T):
             cellt = LstmCell(m)
-            cellt.forward(X, prev_hidden, prev_cell, t, weights)
+            cellt.forward(X, prev_hidden, prev_cell, t, w)
             predicted[:,t] = cellt.cache['output']
             prev_hidden = cellt.cache['current_hidden']
-            prev_cell = cellt.cache['curren_cell']
+            prev_cell = cellt.cache['current_cell']
             cells.append(cellt)
 
         return predicted, cells
@@ -137,7 +137,7 @@ class Lstm:
             grads_current = cells[t].getdJdW(X, weights, t)
             error_from_next_cell = cells[t].errors['prev_hidden']
             cell_t_from_next_cell = cells[t].errors['prev_cell']
-            if(t != T-1)
+            if t != T-1:
                 grads = self.unpackGrads(grads, grads_current)
             else:
                 grads = grads_current
@@ -145,6 +145,13 @@ class Lstm:
 
         return grads
 
+
+    @staticmethod
+    def unpackGrads(grads, grads_current):
+        for i in range(len(grads)):
+            grads[i] += grads_current[i]
+
+        return grads
 
     def softmaxLoss(self, y_predicted, y):
         m = y.shape[0]
@@ -197,8 +204,8 @@ class Lstm:
             mu2[i] = 1.0 * self.momentum2[i]/(1 - self.beta2**t)
 
 
-        for i in range(len(weigths)):
-            self.weigths[i] -= self.alpha * (mu1[i]/np.sqrt(mu2[i]+self.offset))
+        for i in range(len(self.weights)):
+            self.weights[i] -= self.alpha * (mu1[i]/np.sqrt(mu2[i]+self.offset))
 
 
 

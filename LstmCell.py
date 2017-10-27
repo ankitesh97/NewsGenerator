@@ -117,7 +117,7 @@ class LstmCell:
         dhidden += np.dot(dy, weights['V']) #this is the error propogated to both the components that added up to get the current hidden state
 
         #error at output gate
-        doutput_gate = (dhidden * self.cache['current_cell_tan']) * self.dsigmoid(self.cache['ouput_gate'])
+        doutput_gate = (dhidden * self.cache['current_cell_tan']) * self.dsigmoid(self.cache['output_gate'])
 
 
         #error at cell gate
@@ -173,24 +173,24 @@ class LstmCell:
         dJdWhi = np.matmul(self.errors['input_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
         dJdWhi = np.sum(dJdWhi, axis=0)
         dJdUii = self._calcForinputU(weights['Uii'].shape, self.errors['input_gate'], X, t)
-        dJdbhi = np.sum(self.error['input_gate'], axis = 0)
-        dJdbii = np.sum(self.error['input_gate'], axis = 0)
+        dJdbhi = np.sum(self.errors['input_gate'], axis = 0)
+        dJdbii = np.sum(self.errors['input_gate'], axis = 0)
 
 
         ts = self.errors['forget_gate'].shape
         dJdWhf = np.matmul(self.errors['forget_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
         dJdWhf = np.sum(dJdWhi, axis=0)
         dJdUif = self._calcForinputU(weights['Uii'].shape, self.errors['forget_gate'], X, t)
-        dJdbhf = np.sum(self.error['forget_gate'], axis = 0)
-        dJdbif = np.sum(self.error['forget_gate'], axis = 0)
+        dJdbhf = np.sum(self.errors['forget_gate'], axis = 0)
+        dJdbif = np.sum(self.errors['forget_gate'], axis = 0)
 
 
         ts = self.errors['output_gate'].shape
         dJdWho = np.matmul(self.errors['output_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
         dJdWho = np.sum(dJdWhi, axis=0)
         dJdUio = self._calcForinputU(weights['Uii'].shape, self.errors['output_gate'], X, t)
-        dJdbho = np.sum(self.error['output_gate'], axis = 0)
-        dJdbio = np.sum(self.error['output_gate'], axis = 0)
+        dJdbho = np.sum(self.errors['output_gate'], axis = 0)
+        dJdbio = np.sum(self.errors['output_gate'], axis = 0)
 
 
 
@@ -198,8 +198,8 @@ class LstmCell:
         dJdWhg = np.matmul(self.errors['gate_gate'].reshape(ts+(1,)), self.cache['prev_hidden'].reshape((ths[0],1,ths[-1])))
         dJdWhg = np.sum(dJdWhi, axis=0)
         dJdUig = self._calcForinputU(weights['Uii'].shape, self.errors['gate_gate'], X, t)
-        dJdbhg = np.sum(self.error['gate_gate'], axis = 0)
-        dJdbig = np.sum(self.error['gate_gate'], axis = 0)
+        dJdbhg = np.sum(self.errors['gate_gate'], axis = 0)
+        dJdbig = np.sum(self.errors['gate_gate'], axis = 0)
 
         grads = [dJdWhi,dJdWhf,dJdWho,dJdWhg,dJdUii,dJdUif,dJdUio,dJdUig,dJdV,dJdbhi,dJdbhf,dJdbho,dJdbhg,dJdbii,dJdbif,dJdbio,dJdbig,dJdb]
 
