@@ -132,24 +132,26 @@ class RNNModel():
         all_sent = []
         #generate 5 sentences
         for i in range(count):
-            new_sent = [[start_index]]
-            while new_sent[0][-1] != end_index and len(new_sent[0])<=title_len:
+            try:
+                new_sent = [[start_index]]
+                while new_sent[0][-1] != end_index and len(new_sent[0])<=title_len:
 
-                s = np.array(new_sent)
-                next_word_probabs = self.predict(s)[-1][-1]
-                sampled_word = unknown
-                while sampled_word == unknown:
-                    samples = np.random.multinomial(1,next_word_probabs) #sample some random word
-                    sampled_word = np.argmax(samples)
-                new_sent[-1].append(sampled_word)
+                    s = np.array(new_sent)
+                    next_word_probabs = self.predict(s)[-1][-1]
+                    sampled_word = unknown
+                    while sampled_word == unknown:
+                        samples = np.random.multinomial(1,next_word_probabs) #sample some random word
+                        sampled_word = np.argmax(samples)
+                    new_sent[-1].append(sampled_word)
 
-            if new_sent[-1][-1] == end_index:
-                new_sent[-1].pop()
+                if new_sent[-1][-1] == end_index:
+                    new_sent[-1].pop()
 
-            s = ' '.join([index_to_word[x] for x in new_sent[-1][1:]])
+                s = ' '.join([index_to_word[x] for x in new_sent[-1][1:]])
 
-            all_sent.append(s)
-
+                all_sent.append(s)
+            except Exception as e:
+                continue
 
         return all_sent
 
